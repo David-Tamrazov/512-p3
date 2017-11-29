@@ -1,0 +1,5 @@
+grant codeBase "file:/home/2014/nnasir/cs512/phase_1/servercode" {
+    permission java.security.AllPermission;
+};
+
+

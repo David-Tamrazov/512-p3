@@ -1,0 +1,5 @@
+grant codeBase "file:/home/2015/dtamra/Documents/comp_512/project/phase_2/src/main/java/servercode/" {
+    permission java.security.AllPermission;
+};
+
+

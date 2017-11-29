@@ -1,0 +1,16 @@
+apply plugin: 'java'
+
+
+group = 'com.phase2'
+
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	testCompile 'junit:junit:4.+'
+    testCompile 'org.mockito:mockito-core:1.+'
+
+}
+
