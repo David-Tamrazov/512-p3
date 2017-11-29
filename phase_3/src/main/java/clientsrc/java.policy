@@ -1,4 +1,4 @@
-grant codeBase "file:/home/2015/dtamra/Documents/comp_512/project/phase_2/src/main/java/clientsrc/" {
+grant codeBase "file:/home/2015/dtamra/Documents/comp_512/project/phase_3/src/main/java/clientsrc/" {
     permission java.security.AllPermission;
 };
 

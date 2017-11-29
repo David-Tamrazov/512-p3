@@ -85,34 +85,48 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             for (RMType type : t.getResourceManagers()) {
 
                 boolean committed = false;
-                ResourceManager rm = this.getResourceManager(type);
+                
 
-                while(!committed) {
-
+                while(!committed) {				
+					
                     try {
+                    
+                    	ResourceManager rm = this.getResourceManager(type);
 
+						System.out.println("Trying to commit");
+						
                         // try to commit
                         rm.commit(xid);
+                        
+                        System.out.println("We committed.");
+                        
                         committed = true;
 
                     } catch (RemoteException e) {
+                    
+                    	System.out.println("Exception" + e);
+                    
+                    	System.out.println("Lost connection to rm: " + type);
 
                         // if the RM crashes, reconnect to the RM
                         if (!reconnectToRM(type)) {
 
                             // couldn't reconnect to the RM- crash the server NEEDS WORK!!!
                             throw(e);
+                            
                         }
+                        
+                        System.out.println("We back!");
 
                     }
 
 
                 }
 
-                // transaction has committed - remove it from the TM
-                tm.removeActiveTransaction(t.getXID());
-
             }
+            
+            // transaction has committed - remove it from the TM
+            tm.removeActiveTransaction(t.getXID());
 
         // do we need to do something here???
         } catch(InvalidTransactionException | TransactionAbortedException e) {
@@ -130,6 +144,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
 
     public void abort(int xid) throws InvalidTransactionException, RemoteException {
+       
         try {
 
             ActiveTransaction t = tm.getActiveTransaction(xid);
@@ -145,6 +160,8 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
                         // try to abort
                         rm.abort(xid);
+                        
+                        // set aborted to true 
                         aborted = true;
 
                     } catch (RemoteException e) {
@@ -161,10 +178,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
                 }
 
-                // transaction has committed - remove it from the TM
-                tm.removeActiveTransaction(t.getXID());
-
             }
+            
+             // transaction has committed - remove it from the TM
+             tm.removeActiveTransaction(t.getXID());
+
 
             // do we need to do something here???
         } catch(InvalidTransactionException e) {
@@ -186,16 +204,23 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         int i = 0;
 
         while (i < 200) {
+        
+        	System.out.println("Trying to connect to RM : " + t);
 
             try {
 
                 // connect to the registry at this hostname
                 Registry registry = LocateRegistry.getRegistry(hostname, 1738);
 
-                System.out.println("Connected to the registry succesfully");
-
                 // try put the new object reference into our map
                 this.resourceManagers.put(t, (ResourceManager) registry.lookup("Gr17ResourceManager"));
+                
+                
+                // ping to check for liveliness
+                this.resourceManagers.get(t).ping("Hello");
+                
+                // we got here- ping didnt crash us, so we returned succesfully  
+                System.out.println("Connected to the registry succesfully");
 
                 // return true
                 return true;
@@ -203,8 +228,6 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             } catch (Exception e) {
 
                 System.err.println("Server exception: " + e.toString());
-                e.printStackTrace();
-                System.exit(1);
 
             }
 
@@ -216,7 +239,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
     }
 
-    private ResourceManager getResourceManager(RMType t) {
+    public ResourceManager getResourceManager(RMType t) {
         return this.resourceManagers.get(t);
     }
         
@@ -346,6 +369,20 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             handleDeadlock(e.getXID());
             throw new RemoteException("Transaction aborted: deadlock");
 
+        } catch (RemoteException e) {
+        
+	        System.out.println("Oh no, remote exception!");
+	        
+	        if (reconnectToRM(RMType.CAR)) {
+	        
+		        // try again
+		        return addCars(id, location, count, price);
+		        
+	        }
+	        
+	        return false;
+	        
+	        
         }
 
     }
@@ -780,15 +817,15 @@ public class MiddlewareServerImpl implements MiddlewareServer {
     }
 
     public ResourceManager getCarManager() {
-        return this.resourceManagers.get("car");
+        return this.resourceManagers.get(RMType.CAR);
     }
 
     public ResourceManager getRoomManager() {
-        return this.resourceManagers.get("room");
+        return this.resourceManagers.get(RMType.ROOM);
     }
 
     public ResourceManager getFlightManager() {
-        return this.resourceManagers.get("flight");
+        return this.resourceManagers.get(RMType.FLIGHT);
     }
     
 
@@ -900,7 +937,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 						ActiveTransaction t = activeTransaction.getValue();
 						Date curr = new Date();
 
-						// if the transaction has run out of its time to live, abort it
+						// if the transaction has run out of its time to live, 
 						if(curr.getTime() - t.getLastTransationTime().getTime() > t.getTimeToLive()) {
 
 							System.out.println("Aborting transaction: " + t.getXID());

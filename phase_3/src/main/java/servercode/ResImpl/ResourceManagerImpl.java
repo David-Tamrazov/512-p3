@@ -710,13 +710,13 @@ public class ResourceManagerImpl implements ResourceManager {
 // Reserve an itinerary 
     public boolean itinerary(int id,int customer,Vector flightNumbers,String location, boolean Car, boolean Room) {
     
-    	boolean carAvailable, roomAvailable, allFlightsAvailable;
+    	boolean carAvailable, roomAvailable, allFlightsAvailable = true;
 
 
 		try {
         // Try and reserve the flights
 	        if(Car) {
-	        	carAvailble = queryCars(id, location) > 0;
+	        	carAvailable = queryCars(id, location) > 0;
 	        } else {
 		        carAvailable = true;
 	        }
@@ -729,15 +729,16 @@ public class ResourceManagerImpl implements ResourceManager {
 	        	        
 	        for(int flightNum: (Vector<Integer>)flightNumbers) {
 		    	if(queryFlight(id, flightNum) == 0) {
-			    	allFlightsAvailble = false;
+			    	allFlightsAvailable = false;
 		    	}
 	        }
 	        
-	        if(!carAvailable || !roomAvailble || !allFlightsAvailable) {
+	        if(!carAvailable || !roomAvailable || !allFlightsAvailable) {
 		        return false;
 	        }
 	        
-	         for (int flightNum: (Vector<Integer>)flightNumbers) {
+	        
+	        for (int flightNum: (Vector<Integer>)flightNumbers) {
 	
 	            if (!reserveFlight(id, customer, flightNum)) {
 	                return false;
@@ -751,7 +752,7 @@ public class ResourceManagerImpl implements ResourceManager {
 	        
 	        
         } catch(Exception e) {
-	        
+	        return false;
         }
         	
     }
