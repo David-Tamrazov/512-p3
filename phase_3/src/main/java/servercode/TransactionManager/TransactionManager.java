@@ -2,10 +2,16 @@ package servercode.TransactionManager;
 
 import java.rmi.RemoteException;
 import java.util.*;
+import java.io.Serializable;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 
 import servercode.RMEnums.RMType;
+import servercode.TMEnums.TransactionStatus;
 
-public class TransactionManager  {
+public class TransactionManager implements Serializable {
 
     private Map<Integer, ActiveTransaction> activeTransactions;
     private int xid;
@@ -22,9 +28,41 @@ public class TransactionManager  {
 
         // add the transaction to the active transactions list
         addActiveTransaction(xid);
-
+        
         // return the transaction id
         return xid;
+
+    }
+    
+    private void writeSelf() {
+    	try {
+	    	FileOutputStream fos = new FileOutputStream("/tmp/comp512gr17p3.tm.ser");
+			ObjectOutputStream oos = new ObjectOutputStream(fos);
+			oos.writeObject(this);
+			oos.close();
+			fos.close();
+			System.out.println("Serialized data is saved in tm.ser");
+    	} catch (Exception e) {
+	    	System.out.println("Exception: " + e);
+	    	e.printStackTrace();
+    	}
+    }
+
+    private Object readSelf() {
+
+        Object o = null;
+        
+        try(ObjectInputStream ois = new ObjectInputStream(new FileInputStream("/tmp/comp512gr17p3.tm.ser"))) {
+            o = (Object) ois.readObject();
+
+        } catch(Exception e) {
+
+            System.out.println("Err: " + e);
+            e.printStackTrace();
+
+        }
+
+        return o;
 
     }
 
@@ -42,6 +80,8 @@ public class TransactionManager  {
 	    
 	    	// update the keepalive timer
 			this.activeTransactions.get(xid).updateLastTransaction();
+			
+			writeSelf();
 
 			return true;
         }
@@ -52,6 +92,8 @@ public class TransactionManager  {
 	
 		synchronized(this.activeTransactions) {
 			this.activeTransactions.remove(xid);
+			
+			writeSelf();
 		}
 		
 	}
@@ -110,9 +152,10 @@ public class TransactionManager  {
     
     	synchronized(this.activeTransactions) {
 	    	 
-	    	 ActiveTransaction txn = new ActiveTransaction(xid, 30000, new ArrayList<RMType>());
+	    	 ActiveTransaction txn = new ActiveTransaction(xid, 60000, new ArrayList<RMType>(), TransactionStatus.ACTIVE);
 			 this.activeTransactions.put(xid, txn);
-
+			 
+			 writeSelf();
     	}
     }
 

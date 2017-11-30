@@ -8,6 +8,8 @@ import servercode.TransactionManager.TransactionAbortedException;
 import servercode.TransactionManager.TransactionManager;
 import servercode.TransactionManager.ActiveTransaction;
 
+import servercode.TMEnums.*;
+
 import javax.annotation.Resource;
 import java.util.*;
 
@@ -16,6 +18,7 @@ import java.rmi.registry.LocateRegistry;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
 import java.rmi.RMISecurityManager;
+
 
 
 public class MiddlewareServerImpl implements MiddlewareServer {
@@ -75,169 +78,92 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         return tm.start();
 
     }
+    
+    
 
     public boolean commit(int xid) throws InvalidTransactionException, TransactionAbortedException, RemoteException {
 
         try {
 
             ActiveTransaction t = tm.getActiveTransaction(xid);
-
-            for (RMType type : t.getResourceManagers()) {
-
-                boolean committed = false;
-                
-
-                while(!committed) {				
-					
-                    try {
-                    
-                    	ResourceManager rm = this.getResourceManager(type);
-
-						System.out.println("Trying to commit");
-						
-                        // try to commit
-                        rm.commit(xid);
-                        
-                        System.out.println("We committed.");
-                        
-                        committed = true;
-
-                    } catch (RemoteException e) {
-                    
-                    	System.out.println("Exception" + e);
-                    
-                    	System.out.println("Lost connection to rm: " + type);
-
-                        // if the RM crashes, reconnect to the RM
-                        if (!reconnectToRM(type)) {
-
-                            // couldn't reconnect to the RM- crash the server NEEDS WORK!!!
-                            throw(e);
-                            
-                        }
-                        
-                        System.out.println("We back!");
-
-                    }
-
-
-                }
-
-            }
             
-            // transaction has committed - remove it from the TM
-            tm.removeActiveTransaction(t.getXID());
-
-        // do we need to do something here???
-        } catch(InvalidTransactionException | TransactionAbortedException e) {
-
-            System.out.print(e);
+            // set the transaction status as pending a vote request 
+            t.updateStatus(TransactionStatus.VOTE_REQUESTED);
+            
+            // resolve the vote request
+            boolean votedCommit = resolveTransaction(t);
+            
+            // set the status of the transaction depending on the result of the vote request
+            Status s = votedCommit ? TransactionStatus.COMMITTED : TransactionStatus.ABORTED;
+            
+            // update the status of the transaction 
+            t.updateStatus(s);
+            
+            // resolve the transaction again 
+            boolean resolved = resolveTransaction(t);
+            
+            // transaction has committed or aborted- remove it from the TM
+			tm.removeActiveTransaction(t.getXID());
+            
+            // succesful commit - return true
+			return votedCommit && resolved;
+           
+        } catch(RemoteException re) {
+         	
+            // exception thrown even after trying to reconnect to the RM - crash the server gracefully 
+            manageCrash();
             return false;
-
+	        
         }
 
-        // succesful commit - return true
-        return true;
-
     }
+    
+    
 
 
 
-    public void abort(int xid) throws InvalidTransactionException, RemoteException {
+    public void abort(int xid) throws InvalidTransactionException, RemoteException, TransactionAbortedException {
        
         try {
 
             ActiveTransaction t = tm.getActiveTransaction(xid);
-
-            for (RMType type : t.getResourceManagers()) {
-
-                boolean aborted = false;
-                ResourceManager rm = this.getResourceManager(type);
-
-                while(!aborted) {
-
-                    try {
-
-                        // try to abort
-                        rm.abort(xid);
+			
+			// set the transaction status to aborted
+			t.updateStatus(TransactionStatus.ABORTED);
+			
+			// resolve the transaction
+			resolveTransaction(t);
                         
-                        // set aborted to true 
-                        aborted = true;
-
-                    } catch (RemoteException e) {
-
-                        // if the RM crashes, reconnect to the RM
-                        if (!reconnectToRM(type)) {
-
-                            // couldn't reconnect to the RM- crash the server NEEDS WORK!!!
-                            throw(e);
-                        }
-
-                    }
+            // transaction has committed - remove it from the TM
+            tm.removeActiveTransaction(t.getXID());
 
 
-                }
-
-            }
+		} catch (RemoteException e) {
+			
+			// exception thrown even after trying to reconnect to the RM - crash the server gracefully 
+			manageCrash();
             
-             // transaction has committed - remove it from the TM
-             tm.removeActiveTransaction(t.getXID());
+        } catch(TransactionAbortedException | InvalidTransactionException e) {
 
-
-            // do we need to do something here???
-        } catch(InvalidTransactionException e) {
-
-            System.out.print(e);
+			// do we need to do something here??? lol
+            throw(e);
 
         }
 
         // succesful abort
 
     }
-
-    private boolean reconnectToRM(RMType t) {
-
-        // get hostname for this RM
-        String hostname = this.rmHosts.get(t);
-
-        // counter for how many times it should try to reconnect
-        int i = 0;
-
-        while (i < 200) {
-        
-        	System.out.println("Trying to connect to RM : " + t);
-
-            try {
-
-                // connect to the registry at this hostname
-                Registry registry = LocateRegistry.getRegistry(hostname, 1738);
-
-                // try put the new object reference into our map
-                this.resourceManagers.put(t, (ResourceManager) registry.lookup("Gr17ResourceManager"));
-                
-                
-                // ping to check for liveliness
-                this.resourceManagers.get(t).ping("Hello");
-                
-                // we got here- ping didnt crash us, so we returned succesfully  
-                System.out.println("Connected to the registry succesfully");
-
-                // return true
-                return true;
-
-            } catch (Exception e) {
-
-                System.err.println("Server exception: " + e.toString());
-
-            }
-
-        }
-
-
-        // could not reconnect; return false
-        return false;
-
+    
+    
+    private void manageCrash() {
+	    
+	    // abort all transactions 
+	    // sys exit 
+	    
     }
+    
+       
+    
 
     public ResourceManager getResourceManager(RMType t) {
         return this.resourceManagers.get(t);
@@ -423,7 +349,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
             while(!this.tm.transactionOperation(id, RMType.FLIGHT)) {}
             
-            return this.getFlightManager().queryFlight(id, flightNum);
+            return this.getResourceManager(RMType.FLIGHT).queryFlight(id, flightNum);
 
         } catch( InvalidTransactionException e) {
 
@@ -589,9 +515,9 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.ROOM);
             this.tm.transactionOperation(id, RMType.CAR);
 
-            return "\n" + this.getCarManager().queryCustomerInfo(id, customerID) + "\n" +
-                    this.getFlightManager().queryCustomerInfo(id, customerID) + "\n" +
-                    this.getRoomManager().queryCustomerInfo(id, customerID);
+            return "\n" + this.getResourceManager(RMType.CAR).queryCustomerInfo(id, customerID) + "\n" +
+                    this.getResourceManager(RMType.FLIGHT).queryCustomerInfo(id, customerID) + "\n" +
+                    this.getResourceManager(RMType.ROOM).queryCustomerInfo(id, customerID);
 
         } catch( InvalidTransactionException e) {
 
@@ -617,9 +543,9 @@ public class MiddlewareServerImpl implements MiddlewareServer {
                 this.tm.transactionOperation(id, entry.getKey());
             }
 
-            int cid = this.getCarManager().newCustomer(id);
-            this.getFlightManager().newCustomer(id,cid);
-            this.getRoomManager().newCustomer(id,cid);
+            int cid = this.getResourceManager(RMType.CAR).newCustomer(id);
+            this.getResourceManager(RMType.FLIGHT).newCustomer(id,cid);
+            this.getResourceManager(RMType.ROOM).newCustomer(id,cid);
 
             return cid;
 
@@ -647,9 +573,9 @@ public class MiddlewareServerImpl implements MiddlewareServer {
                 this.tm.transactionOperation(id, entry.getKey());
             }
 
-            return this.getRoomManager().newCustomer(id, customerID) &&
-                    this.getCarManager().newCustomer(id, customerID) &&
-                    this.getFlightManager().newCustomer(id, customerID);
+            return this.getResourceManager(RMType.CAR).newCustomer(id, customerID) &&
+                    this.getResourceManager(RMType.FLIGHT).newCustomer(id, customerID) &&
+                    this.getResourceManager(RMType.ROOM).newCustomer(id, customerID);
 
 
         } catch( InvalidTransactionException e) {
@@ -675,12 +601,12 @@ public class MiddlewareServerImpl implements MiddlewareServer {
                 this.tm.transactionOperation(id, entry.getKey());
             }
 
-            this.getCarManager().deleteCustomer(id, customerID);
-            this.getFlightManager().deleteCustomer(id, customerID);
+            this.getResourceManager(RMType.CAR).deleteCustomer(id, customerID);
+            this.getResourceManager(RMType.FLIGHT).deleteCustomer(id, customerID);
 
-            return this.getRoomManager().deleteCustomer(id, customerID) &&
-                    this.getCarManager().deleteCustomer(id, customerID) &&
-                    this.getFlightManager().deleteCustomer(id, customerID);
+            return this.getResourceManager(RMType.ROOM).deleteCustomer(id, customerID) &&
+                    this.getResourceManager(RMType.CAR).deleteCustomer(id, customerID) &&
+                    this.getResourceManager(RMType.FLIGHT).deleteCustomer(id, customerID);
 
 
         } catch( InvalidTransactionException e) {
@@ -727,7 +653,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         try {
 
             this.tm.transactionOperation(id, RMType.ROOM);
-            return this.getCarManager().reserveRoom(id, customerID, location);
+            return this.getResourceManager(RMType.ROOM).reserveRoom(id, customerID, location);
 
         } catch( InvalidTransactionException e) {
 
@@ -749,7 +675,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         try {
 
             this.tm.transactionOperation(id, RMType.FLIGHT);
-            return this.getFlightManager().reserveFlight(id, customerID, flightNum);
+            return rm.reserveFlight(id, customerID, flightNum);
 
         } catch( InvalidTransactionException e) {
 
@@ -781,7 +707,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
             for (Object flightNum: (Vector)flightNumbers) {
     
-                if (!this.getFlightManager().reserveFlight(id, customer, Integer.parseInt((String)flightNum))) {
+                if (!this.getResourceManager(RMType.FLIGHT).reserveFlight(id, customer, Integer.parseInt((String)flightNum))) {
                     return false;
                 }
     
@@ -789,12 +715,12 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
             if (Car) {
                 this.tm.transactionOperation(id, RMType.CAR);
-                success = this.getCarManager().reserveCar(id, customer, location);
+                success = this.getResourceManager(RMType.CAR).reserveCar(id, customer, location);
             }
 
             if (Room) {
                 this.tm.transactionOperation(id, RMType.ROOM);
-                success = this.getRoomManager().reserveRoom(id, customer, location);
+                success = this.getResourceManager(RMType.ROOM).reserveRoom(id, customer, location);
             }
 
     
@@ -815,24 +741,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
     public void ping(String ping) throws RemoteException {
         System.out.println(ping);
     }
-
-    public ResourceManager getCarManager() {
-        return this.resourceManagers.get(RMType.CAR);
-    }
-
-    public ResourceManager getRoomManager() {
-        return this.resourceManagers.get(RMType.ROOM);
-    }
-
-    public ResourceManager getFlightManager() {
-        return this.resourceManagers.get(RMType.FLIGHT);
-    }
-    
-
-    public static void sayHey() {
-        
-        System.out.println("Hey there from the MiddlewareServer");
-    }
+   
 
     public static void main(String args[]) {
 
@@ -873,9 +782,9 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             // Bind to the active resource managers passed to the server
             mws.connectToManagers(activeManagers);
 
-            mws.getCarManager().ping("car");
-            mws.getFlightManager().ping("flight");
-            mws.getRoomManager().ping("room");
+            mws.getResourceManager(RMType.CAR).ping("car");
+            mws.getResourceManager(RMType.FLIGHT).ping("flight");
+            mws.getResourceManager(RMType.ROOM).ping("room");
             
             System.out.println("Middleware server is ready.");
 
@@ -908,12 +817,144 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 	    System.exit(0);
 	    return true;
     }
+    
+    private boolean resolveTransaction(ActiveTransaction t) throws RemoteException, TransactionAbortedException {
+    
+    	Status s = t.getStatus();
+    
+    	for (RMType type: t.getResourceManagers()) {
+	    	
+	    	try {
+	    	
+	    		// get the corresponding RM 
+	    		ResourceManager rm = this.getResourceManager(type);
+	    		
+	    		System.out.println("Resolving transaction #" + t.getXID() + ", with status: " + s.toString() + ", for RM: " + type.toString());
+	    		
+	    		// resolve - if at any point we fail return false
+	    		if (!s.resolve(rm, t.getXID())) {
+		    		return false;
+	    		}	
+		    	
+	    	} catch (RemoteException e) {
+	    	
+	    		System.out.println("Exception" + e);
+	        
+	        	System.out.println("Lost connection to rm: " + type);
+	
+	            // if the RM crashes, reconnect to the RM
+	            if (!reconnectToRM(type)) {
+	
+	                // couldn't reconnect to the RM- crash the server NEEDS WORK!!!
+	                throw(e);
+	                
+	            }
+	            
+	            System.out.println("Recovered connection to RM: " + type);
+		    	
+	    	} catch (InvalidTransactionException | TransactionAbortedException i) {
+		    	return false;
+	    	}
+	    	
+	    	
+    	}
+    	
+    	return true;
+		
+	}
+	
+	
+	private boolean recoverTransaction(ActiveTransaction t) throws RemoteException {
+	
+		try {
+		
+			// go through the commit process again 
+			if (t.getStatus() == TransactionStatus.VOTE_REQUESTED) {
+				return commit(t.getXID());
+			} 
+			
+			// just resolve the transaction - commit, abort, active
+			return resolveTransaction(t);
+			
+			
+		} catch (RemoteException e) {
+		
+			// reconnecting proved impossible elsewhere; crash the server 
+			manageCrash();
+			return false;
+			
+		} catch (InvalidTransactionException | TransactionAbortedException e) {
+			//we'll worry about this later
+			tm.removeActiveTransaction(t.getXID());
+			return false;
+		}
+		 
+	
+    }
+    
+
+    private boolean reconnectToRM(RMType t) {
+
+        // get hostname for this RM
+        String hostname = this.rmHosts.get(t);
+
+        // counter for how many times it should try to reconnect
+        int i = 0;
+        
+        System.out.print("\n" + t + " RM down, attempting reconnect.");
+
+        while (i < 200) {
+        
+            try {
+
+                // connect to the registry at this hostname
+                Registry registry = LocateRegistry.getRegistry(hostname, 1738);
+
+                // try put the new object reference into our map
+                this.resourceManagers.put(t, (ResourceManager) registry.lookup("Gr17ResourceManager"));
+                            
+                // ping to check for liveliness
+                this.resourceManagers.get(t).ping("Hello");
+                
+                // we got here- ping didnt crash us, so we returned succesfully
+                System.out.println("");
+                
+                System.out.println("Connected to the registry succesfully");
+
+                // return true
+                return true;
+
+            } catch (Exception e) {
+            
+				i++;
+				
+				if(i % 5 == 0) { System.out.print("."); }
+				
+				try {
+					Thread.sleep(500);
+				} catch(Exception ei) {
+					
+				}
+/*                 System.err.println("Server exception: " + e.toString()); */
+
+            }
+
+        }
+        
+        System.out.println("");
+
+
+        // could not reconnect; return false
+        return false;
+
+	}
+
 
     private void handleDeadlock(int xid) {
 
         try {
             abort(xid);
-        } catch (InvalidTransactionException | RemoteException e) {
+        } catch (InvalidTransactionException | TransactionAbortedException | RemoteException e) {
 
             System.out.println("Invalid transaction passed to abort.");
         }
@@ -938,7 +979,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 						Date curr = new Date();
 
 						// if the transaction has run out of its time to live, 
-						if(curr.getTime() - t.getLastTransationTime().getTime() > t.getTimeToLive()) {
+						if(curr.getTime() - t.getLastTransationTime().getTime() > t.getTimeToLive() && t.getStatus() == TransactionStatus.ACTIVE) {
 
 							System.out.println("Aborting transaction: " + t.getXID());
 							
@@ -948,7 +989,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 								abort(t.getXID());
 
 						
-							} catch (InvalidTransactionException | RemoteException e) {
+							} catch (InvalidTransactionException | TransactionAbortedException | RemoteException e) {
 
 								System.out.println("Keepalive thread interrupted.");
 							}
@@ -974,6 +1015,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 		
 		keepalive.start();
 	    
+    }
+    
+    @Override 
+    public boolean voteRequest(int xid) throws RemoteException, InvalidTransactionException {
+	   return true;
     }
 
 }

@@ -3,6 +3,7 @@ package servercode.ResInterface;
 import java.rmi.registry.Registry;
 import java.rmi.Remote;
 import java.rmi.RemoteException;
+import servercode.RMEnums.RMType;
 
 import java.util.*;
 
@@ -16,8 +17,6 @@ import java.util.*;
 public interface MiddlewareServer extends ResourceManager {
     
     public void connectToManagers(String [] activeManagers) throws RemoteException;
-    public ResourceManager getFlightManager() throws RemoteException;
-    public ResourceManager getCarManager() throws RemoteException;
-    public ResourceManager getRoomManager() throws RemoteException;
+    public ResourceManager getResourceManager(RMType type) throws RemoteException;
 
 }

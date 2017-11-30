@@ -9,7 +9,7 @@ public interface Transaction {
 
     public int start() throws RemoteException;
     public boolean commit(int xid) throws RemoteException, TransactionAbortedException, InvalidTransactionException;
-    public void abort(int xid) throws RemoteException, InvalidTransactionException;
+    public void abort(int xid) throws RemoteException, InvalidTransactionException, TransactionAbortedException;
     public boolean shutdown() throws RemoteException; 
    
 }

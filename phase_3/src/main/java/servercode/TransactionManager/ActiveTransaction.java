@@ -2,10 +2,12 @@ package servercode.TransactionManager;
 
 import java.rmi.RemoteException;
 import java.util.*;
+import java.io.Serializable;
 
 import servercode.RMEnums.RMType;
+import servercode.ResInterface.Status;
 
-public class ActiveTransaction {
+public class ActiveTransaction implements Serializable {
 
     // list of managers active in this transaction
     private List<RMType> activeManagers;
@@ -14,12 +16,14 @@ public class ActiveTransaction {
     private int timeToLive;
     private int xid;
     private Date lastTransactionTime;
+    private Status status;
 
-    public ActiveTransaction(int xid, int timeToLive, List<RMType> resourceManagers) {
+    public ActiveTransaction(int xid, int timeToLive, List<RMType> resourceManagers, Status s) {
         setXID(xid);
         setTimeToLive(timeToLive);
         setActiveManagers(resourceManagers);
         setLastTransactionTime(new Date());
+        setStatus(s);
     }
 
     public void addActiveManager(RMType manager) {
@@ -50,6 +54,14 @@ public class ActiveTransaction {
     public Date getLastTransationTime() {
         return this.lastTransactionTime;
     }
+    
+    public Status getStatus() {
+	    return this.status;
+    }
+    
+    public void updateStatus(Status s) {
+	    setStatus(s);
+    }
 
     public void updateLastTransaction() {
         this.lastTransactionTime =  new Date();
@@ -61,6 +73,10 @@ public class ActiveTransaction {
     
     public int getXID() {
 	    return this.xid;
+    }
+    
+    private void setStatus(Status s) {
+	    this.status = s;
     }
     
     private void setLastTransactionTime(Date d) {
