@@ -1,10 +1,10 @@
 package servercode.LockManager;
-;
 
 import java.util.BitSet;
 import java.util.Vector;
+import java.io.Serializable;
 
-public class LockManager
+public class LockManager implements Serializable
 {
     public static final int READ = 0;
     public static final int WRITE = 1;

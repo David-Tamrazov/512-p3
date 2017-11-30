@@ -3,6 +3,7 @@ package servercode.ResInterface;
 
 import java.rmi.Remote;
 import java.rmi.RemoteException;
+import servercode.TransactionManager.InvalidTransactionException;
 
 import java.util.*;
 /** 
@@ -30,6 +31,10 @@ public interface ResourceManager extends Remote, Transaction {
      *
      * @return success.
      */
+     
+    public boolean voteRequest(int id)
+    throws RemoteException, InvalidTransactionException;
+    
     public boolean addFlight(int id, int flightNum, int flightSeats, int flightPrice) 
 	throws RemoteException; 
     

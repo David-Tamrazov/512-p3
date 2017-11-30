@@ -28,11 +28,10 @@ import java.util.concurrent.locks.Lock;
 public class ResourceManagerImpl implements ResourceManager {
     
     protected RMHashtable m_itemHT = new RMHashtable();
+    protected HashMap l_itemHTM = new HashMap<Integer, RMHashtable>();
     protected LockManager lm;
+    protected String resourceType;
 
-    protected HashMap operationSet = new HashMap<Integer, HashMap<String, RMItem>>();
-
-    //    protected HashMap removeSet = new HashMap<Integer, ArrayList<String>>();
 
     public static void main(String args[]) {
         // Figure out where server is running
@@ -51,6 +50,7 @@ public class ResourceManagerImpl implements ResourceManager {
             System.out.println("Usage: java ResImpl.ResourceManagerImpl [port]");
             System.exit(1);
         }
+        
 
         try {
 
@@ -67,10 +67,10 @@ public class ResourceManagerImpl implements ResourceManager {
             Registry registry = LocateRegistry.getRegistry(port);
 
             System.out.println("Binding resource manager object to: " + objName);
+            
+            
+            
             registry.rebind(objName, rm);
-
-
-
 
             System.err.println("Server ready");
         } catch (Exception e) {
@@ -85,27 +85,24 @@ public class ResourceManagerImpl implements ResourceManager {
     }
 
     private void writeObjToFile(Object obj, String filepath) {
-
-
-        try (ObjectOutputStream oos = new ObjectOutputStream((new FileOutputStream(filepath)))) {
-
-
-
-        } catch (Exception e) {
-
-            System.out.println("Err: " + e);
-            e.printStackTrace();
-
-        }
-
+    	try {
+	    	FileOutputStream fos = new FileOutputStream("/tmp/comp512gr17p3." + filepath);
+			ObjectOutputStream oos = new ObjectOutputStream(fos);
+			oos.writeObject(obj);
+			oos.close();
+			fos.close();
+			System.out.println("Serialized data is saved in " + filepath);
+    	} catch (Exception e) {
+	    	System.out.println("Exception: " + e);
+	    	e.printStackTrace();
+    	}
     }
 
-    private Object readObjFromFile(Object obj, String filepath) {
+    private Object readObjFromFile(String filepath) {
 
         Object o = null;
 
-        try(ObjectInputStream ois
-            = new ObjectInputStream(new FileInputStream(filepath))) {
+        try(ObjectInputStream ois = new ObjectInputStream(new FileInputStream("/tmp/comp512gr17p3." + filepath))) {
 
             o = (Object) ois.readObject();
 
@@ -132,46 +129,29 @@ public class ResourceManagerImpl implements ResourceManager {
 
 
     public boolean commit(int xid) throws InvalidTransactionException, TransactionAbortedException, RemoteException {
-    
-    	
-    	synchronized(this.operationSet) {
-	    	
-    		HashMap<String, RMItem> tidOPSet = (HashMap) operationSet.get(xid);
-    
+	    synchronized(m_itemHT) {
+	    	    	
+	    	RMHashtable l_itemHT = (RMHashtable)l_itemHTM.get(xid);
+		    	
+		    for (Object key: l_itemHT.keySet()) {
+		    
+			    if(l_itemHT.get(key) instanceof Customer && ((Customer) l_itemHT.get(key)).getID() == -1) {
+				    m_itemHT.remove(key);
+			    } else {
+				    m_itemHT.put(key, l_itemHT.get(key));
+			    }
+			    
+		    }
 			
-			synchronized(m_itemHT) {
-				
-				
-				for (Map.Entry<String, RMItem> operationSetEntry : ((HashMap<String, RMItem>)operationSet.get(xid)).entrySet()) {
-
-	           		if(operationSetEntry.getValue() instanceof Customer && ((Customer)operationSetEntry.getValue()).getID() == -1) {
-	
-	                	m_itemHT.remove(operationSetEntry.getKey());
-	
-					} else {
-						
-						
-						if (operationSetEntry.getValue() == null) {
-							System.out.println("Opset Entry value is null for key :" + operationSetEntry.getKey());
-						}
-						
-						m_itemHT.put(operationSetEntry.getKey(), operationSetEntry.getValue());
-						
-					}
-
-				}
-				
-				
-					this.lm.unlockTransactionLocks(xid);
-   
-				return true;	
-				
-			}
-					
-    	}
-  	
-
+			writeObjToFile(m_itemHT, "m_itemHT.ser");		
+		    this.lm.unlockTransactionLocks(xid);
+		    writeObjToFile(lm, "lockmanager.ser");
+		    
+		    return true;       
+	    }
+    
     }
+    
 
 	public boolean shutdown() throws RemoteException {
 		
@@ -181,31 +161,12 @@ public class ResourceManagerImpl implements ResourceManager {
 	}
 	
     public void abort(int xid) throws RemoteException, InvalidTransactionException {
-    
-    
-    	synchronized(operationSet) {
-	    	
-	    	HashMap<String, RMItem> tidOPSet = (HashMap) operationSet.get(xid);
-            
-	        // remove the operation set from memory - no changes persisted
-	        this.operationSet.remove(xid);
-			
-	            
-	        HashMap<String, RMItem> tidOPSetAfter = (HashMap) operationSet.get(xid);
-	        
-	        if (tidOPSetAfter == null) {
-		        System.out.println("No operation set after abort for ID " + xid + "\n");
-	        }
-	        
-	        else {
-		        System.out.println("\nOp exists after abort tid: " + xid);
-	        }
-	        
-				this.lm.unlockTransactionLocks(xid);
-		    	
-	    }
-        
-        
+	    synchronized(l_itemHTM) {
+	    	l_itemHTM.remove(xid);
+	    	writeObjToFile(l_itemHTM, "l_itemHTM.ser");
+	        this.lm.unlockTransactionLocks(xid);
+			writeObjToFile(lm, "lockmanager.ser");          
+        }
     }
 
 
@@ -218,9 +179,9 @@ public class ResourceManagerImpl implements ResourceManager {
     private RMItem readData( int id, String key ) throws DeadlockException {
 
         try {
-
             // obtain a read lock  for this item
             boolean locked = lm.Lock(id, key, LockManager.READ);
+            writeObjToFile(lm, "lockmanager.ser");          
 
             // read and return the item
             return read(id, key);
@@ -229,36 +190,30 @@ public class ResourceManagerImpl implements ResourceManager {
             throw e;
         }
 
-
-
     }
 
     // Reads a data item
     private RMItem read( int id, String key ) {
-
-        synchronized(m_itemHT) {
-
-            synchronized(operationSet) {
-            
-
-                if(!operationSet.containsKey(id)) {
-                    operationSet.put(id, new HashMap());
-                }
-                
-				HashMap<String, RMItem> tidOPSet = (HashMap) operationSet.get(id);
-				
-                if (!tidOPSet.containsKey(key)) {
-                
-                	return (RMItem) m_itemHT.get(key);
-                	// tidOPSet.put(key, itm);
-                
-                }
-                
-                return (RMItem) ((HashMap) (operationSet.get(id))).get(key);
-
-            }
-
-        }
+    	synchronized(l_itemHTM) {
+    
+        	if(!l_itemHTM.containsKey(id)) {
+	        	l_itemHTM.put(id, new RMHashtable());
+        	}
+        	
+        	RMHashtable l_itemHT = (RMHashtable) l_itemHTM.get(id);
+        	
+        	if(!l_itemHT.containsKey(key)) {
+        	
+        		RMItem item = (RMItem) m_itemHT.get(key);
+        		
+        		if(item != null) {
+		        	l_itemHT.put(key, item.clone());
+	        	}
+        	}
+        	
+        	writeObjToFile(l_itemHTM, "l_itemHTM.ser");
+        	return (RMItem) l_itemHT.get(key);
+    	}
 
     }
 
@@ -267,26 +222,17 @@ public class ResourceManagerImpl implements ResourceManager {
 
         // obtain the lock and perform the write
         boolean locked = lm.Lock(id, key, LockManager.WRITE);
+        writeObjToFile(lm, "lockmanager.ser");    
         write(id, key, value);
         return true;
 
     }
 
-    private void write ( int id, String key, RMItem value) {
-
-        synchronized (operationSet) {
-        	
-	        if(!operationSet.containsKey(id)) {
-                operationSet.put(id, new HashMap());
-            }
-            
-            HashMap<String, RMItem> tidOPSet = (HashMap) operationSet.get(id);
-           
-
-            tidOPSet.put(key, value);
-
+    private void write ( int id, String key, RMItem value) {   	
+    	synchronized(l_itemHTM) {
+        	((RMHashtable)l_itemHTM.get(id)).put(key, value);
+        	writeObjToFile(l_itemHTM, "l_itemHTM.ser");
         }
-
     }
 
     // Remove the item out of storage
@@ -302,18 +248,14 @@ public class ResourceManagerImpl implements ResourceManager {
 
         RMItem deleteItem = new Customer(-1);
 
-        synchronized (operationSet) {
+        synchronized (l_itemHTM) {
 
-
-            RMItem originalItem = (RMItem) ((HashMap) (operationSet.get(id))).get(key);
+            RMItem originalItem = (RMItem) ((RMHashtable)(l_itemHTM.get(id))).get(key);
             write (id, key, deleteItem);
 
+			writeObjToFile(l_itemHTM, "l_itemHTM.ser");
             return originalItem;
-
-
         }
-
-
     }
     
     
@@ -759,6 +701,17 @@ public class ResourceManagerImpl implements ResourceManager {
 
     public void ping(String ping) throws RemoteException {
         System.out.println(ping);
+        
+        if(ping.equals("car") || ping.equals("flight") || ping.equals("room")) {
+	        resourceType = ping;
+        }
+    }
+
+    
+    @Override
+    public boolean voteRequest(int xid) throws RemoteException, InvalidTransactionException {
+	    //check if transaction has an op set here, if not throw invalid transaction exception, else return true
+	    return true;
     }
 
 }
