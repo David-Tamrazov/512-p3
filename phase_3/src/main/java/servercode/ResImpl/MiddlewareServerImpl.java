@@ -1185,12 +1185,12 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 			
 		} catch (RemoteException e) {
 		
-			// reconnecting proved impossible elsewhere; crash the server 
+			// reconnecting proved impossible; crash the server 
 			manageCrash();
 			return false;
 			
 		} catch (InvalidTransactionException | TransactionAbortedException e) {
-			//we'll worry about this later
+
 			tm.removeActiveTransaction(t.getXID());
 			return false;
 		}
