@@ -20,6 +20,12 @@ import java.rmi.server.UnicastRemoteObject;
 import java.rmi.RMISecurityManager;
 
 
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.File;
+
 
 public class MiddlewareServerImpl implements MiddlewareServer {
     
@@ -27,6 +33,8 @@ public class MiddlewareServerImpl implements MiddlewareServer {
     Map<RMType, ResourceManager> resourceManagers;
     TransactionManager tm;
     Map<RMType, String> rmHosts;
+    
+    protected final static String fileHome = "/tmp/comp512gr17p3";
 
     public MiddlewareServerImpl(Map<RMType, ResourceManager> map, Map<RMType, String> hosts) {
 
@@ -34,7 +42,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         resourceManagers = map;
 
         // start a new transaction manager
-        tm = new TransactionManager(new HashMap<Integer, ActiveTransaction>());
+        tm = setTransactionManager(fileHome + "." + "tm.ser");
 
         // set the active hosts map
         rmHosts = hosts;
@@ -48,8 +56,27 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 		System.out.println("Ready to go.");
 
     }
+    
+    private TransactionManager setTransactionManager(String filepath) {
+	    
+	    File tmFile = new File(filepath);
+	    
+		if(tmFile.exists()) { 
+		
+			// return the TM read from file 
+			return (TransactionManager)readObjFromFile("tm.ser");
+			
+		} else {
+		
+			// return a newly initia-jizzed TM
+			return new TransactionManager(new HashMap<Integer, ActiveTransaction>());
+		}
+	
+		
+    }
 
     public void connectToManagers(String [] activeManagers) throws RemoteException {
+        
         RMType[] resources = new RMType[] { RMType.CAR, RMType.FLIGHT, RMType.ROOM };
 
         for (int i = 0; i < activeManagers.length; i++) {
@@ -86,9 +113,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         try {
 
             ActiveTransaction t = tm.getActiveTransaction(xid);
+          
             
             // set the transaction status as pending a vote request 
-            t.updateStatus(TransactionStatus.VOTE_REQUESTED);
+            tm.updateTransactionStatus(t,TransactionStatus.VOTE_REQUESTED);
+            
             
             // resolve the vote request
             boolean votedCommit = resolveTransaction(t);
@@ -97,7 +126,8 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             Status s = votedCommit ? TransactionStatus.COMMITTED : TransactionStatus.ABORTED;
             
             // update the status of the transaction 
-            t.updateStatus(s);
+            tm.updateTransactionStatus(t,s);
+            
             
             // resolve the transaction again 
             boolean resolved = resolveTransaction(t);
@@ -127,15 +157,17 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         try {
 
             ActiveTransaction t = tm.getActiveTransaction(xid);
+            
+            // set the transaction status to aborted
+            tm.updateTransactionStatus(t, TransactionStatus.ABORTED);
 			
-			// set the transaction status to aborted
-			t.updateStatus(TransactionStatus.ABORTED);
 			
 			// resolve the transaction
 			resolveTransaction(t);
                         
             // transaction has committed - remove it from the TM
             tm.removeActiveTransaction(t.getXID());
+            
 
 
 		} catch (RemoteException e) {
@@ -182,8 +214,19 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.FLIGHT);
             rm.addFlight(id, flightNum, flightSeats, flightPrice);
             return true;
-
-        }  catch (InvalidTransactionException e) {
+            
+        } catch (RemoteException e) {
+        
+			// run an infinite loop and try to reconnect to the RM
+			if (reconnectToRM(RMType.FLIGHT)) {
+				
+				return addFlight(id, flightNum, flightSeats, flightPrice);
+				
+			}
+				
+			return false;
+			
+        } catch (InvalidTransactionException e) {
 	        
 	        System.out.println("Invalid transaction ID passed.");
 	        return false;
@@ -209,7 +252,18 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.FLIGHT);
             return rm.deleteFlight(id, flightNum);
 
-        } catch( InvalidTransactionException e) {
+        } catch (RemoteException e) {
+        
+			// run an infinite loop and try to reconnect to the RM
+			if (reconnectToRM(RMType.FLIGHT)) {
+				
+				return deleteFlight(id, flightNum);
+				
+			}
+				
+			return false;
+			
+        } catch(InvalidTransactionException e) {
 
             System.out.print(e);
             return false;
@@ -237,6 +291,17 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.ROOM);
             return rm.addRooms(id, location, count, price);
 
+        } catch (RemoteException e) {
+        
+			// run an infinite loop and try to reconnect to the RM
+			if (reconnectToRM(RMType.ROOM)) {
+				
+				return addRooms(id, location, count, price);
+				
+			}
+				
+			return false;
+			
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -261,6 +326,19 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.ROOM);
             return rm.deleteRooms(id, location);
 
+        } catch (RemoteException e) {
+        
+			// run an infinite loop and try to reconnect to the RM
+			if (reconnectToRM(RMType.ROOM)) {
+				
+				// try the operation again
+				return deleteRooms(id, location);
+				
+			}
+			
+			return false;
+				
+			
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -297,18 +375,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-	        System.out.println("Oh no, remote exception!");
-	        
 	        if (reconnectToRM(RMType.CAR)) {
-	        
-		        // try again
+		        
+		        // try run the method again
 		        return addCars(id, location, count, price);
 		        
 	        }
 	        
 	        return false;
-	        
-	        
         }
 
     }
@@ -324,6 +398,18 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.CAR);
             return rm.deleteCars(id, location);
 
+        } catch (RemoteException e) {
+        
+	        if (reconnectToRM(RMType.CAR)) {
+		        
+		        // try run the method again
+		        return deleteCars(id, location);
+		        
+	        }
+	        
+	        return false;
+	        
+	        
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -351,6 +437,18 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             
             return this.getResourceManager(RMType.FLIGHT).queryFlight(id, flightNum);
 
+        } catch (RemoteException e) {
+        
+	        if (reconnectToRM(RMType.FLIGHT)) {
+		        
+		        // try run the method again
+		        return queryFlight(id, flightNum);
+		        
+	        }
+	        
+	        return 0;
+	        
+	        
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -389,6 +487,18 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             tm.transactionOperation(id, RMType.FLIGHT);
             return rm.queryFlightPrice(id, flightNum);
 
+        } catch (RemoteException e) {
+        
+	        if (reconnectToRM(RMType.FLIGHT)) {
+		        
+		        // try run the method again
+		        return queryFlightPrice(id, flightNum);
+		        
+	        }
+	        
+	        return 0;
+	        
+	        
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -413,6 +523,18 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.ROOM);
             return rm.queryRooms(id, location);
 
+        } catch (RemoteException e) {
+        
+	        if (reconnectToRM(RMType.ROOM)) {
+		        
+		        // try run the method again
+		        return queryRooms(id, location);
+		        
+	        }
+	        
+	        return 0;
+	        
+	        
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -439,6 +561,18 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.ROOM);
             return rm.queryRoomsPrice(id, location);
 
+        } catch (RemoteException e) {
+        
+	        if (reconnectToRM(RMType.ROOM)) {
+		        
+		        // try run the method again
+		        return queryRoomsPrice(id, location);
+		        
+	        }
+	        
+	        return 0;
+	        
+	        
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -463,6 +597,18 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.CAR);
             return rm.queryCars(id, location);
 
+        } catch (RemoteException e) {
+        
+	        if (reconnectToRM(RMType.CAR)) {
+		        
+		        // try run the method again
+		        return queryCars(id, location);
+		        
+	        }
+	        
+	        return 0;
+	        
+	        
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -487,6 +633,17 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.CAR);
             return rm.queryCarsPrice(id, location);
 
+        } catch (RemoteException e) {
+        
+	        if (reconnectToRM(RMType.CAR)) {
+		        
+		        // try run the method again
+		        return queryCarsPrice(id, location);
+		        
+	        }
+	        
+	        return 0;
+	        
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -509,16 +666,35 @@ public class MiddlewareServerImpl implements MiddlewareServer {
     // return a bill
     public String queryCustomerInfo(int id, int customerID) throws RemoteException {
 
+       	RMType attempt = RMType.CAR;
+       	
         try {
-
-            this.tm.transactionOperation(id, RMType.FLIGHT);
-            this.tm.transactionOperation(id, RMType.ROOM);
+        
+			
+            this.tm.transactionOperation(id, RMType.FLIGHT);            
+            this.tm.transactionOperation(id, RMType.ROOM); 
             this.tm.transactionOperation(id, RMType.CAR);
+            
+         
+            String str = "\n" + this.getResourceManager(RMType.CAR).queryCustomerInfo(id, customerID);
+            
+            attempt = RMType.FLIGHT;
+            
+            str += "\n" + this.getResourceManager(RMType.FLIGHT).queryCustomerInfo(id, customerID);
+            
+            attempt = RMType.ROOM; 
+            
+            return str += "\n" + this.getResourceManager(RMType.ROOM).queryCustomerInfo(id, customerID);
 
-            return "\n" + this.getResourceManager(RMType.CAR).queryCustomerInfo(id, customerID) + "\n" +
-                    this.getResourceManager(RMType.FLIGHT).queryCustomerInfo(id, customerID) + "\n" +
-                    this.getResourceManager(RMType.ROOM).queryCustomerInfo(id, customerID);
 
+        } catch (RemoteException e) {
+        
+        	if (reconnectToRM(attempt)) {
+	        	return queryCustomerInfo(id, customerID);
+        	}
+        	
+        	return "";
+        	
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -537,20 +713,36 @@ public class MiddlewareServerImpl implements MiddlewareServer {
     
     public synchronized int newCustomer(int id) throws RemoteException {
 
+		RMType attempt = RMType.CAR;
+					
         try {
 
             for (Map.Entry<RMType, ResourceManager> entry : this.resourceManagers.entrySet()) {
                 this.tm.transactionOperation(id, entry.getKey());
             }
-
+			
             int cid = this.getResourceManager(RMType.CAR).newCustomer(id);
+            
+            attempt = RMType.FLIGHT;
+            
             this.getResourceManager(RMType.FLIGHT).newCustomer(id,cid);
+            
+            attempt = RMType.ROOM;
+            
             this.getResourceManager(RMType.ROOM).newCustomer(id,cid);
 
             return cid;
 
+        } catch(RemoteException e) {
+        	
+        	if (reconnectToRM(attempt)) {
+	        	return newCustomer(id);
+        	}
+        	
+        	return 0;
+        	
         } catch( InvalidTransactionException e) {
-
+ 
             throw new RemoteException("Invalid transaction id passed: " + id);
 
         } catch (DeadlockException e) {
@@ -563,21 +755,54 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
 
     }
+    
+    
+/*
+    private ArrayList<RMType> getClone(ArrayList<RMType> e) {
+	    
+	    ArrayList<RMType> temp = new ArrayList<RMType>();
+	    
+	    for (RMType type: e) {
+		    temp.push(e);
+	    }
+	    
+	    return temp;
+    }
+*/
 
     // I opted to pass in customerID instead. This makes testing easier
     public synchronized boolean newCustomer(int id, int customerID) throws RemoteException {
+    
 
+		RMType attempt = RMType.CAR;
+		
         try {
 
             for (Map.Entry<RMType, ResourceManager> entry : this.resourceManagers.entrySet()) {
                 this.tm.transactionOperation(id, entry.getKey());
             }
+			
+			boolean car = this.getResourceManager(RMType.CAR).newCustomer(id, customerID);
+			
+			attempt = RMType.FLIGHT;
+			
+			boolean flight = this.getResourceManager(RMType.FLIGHT).newCustomer(id, customerID);
+			
+			attempt = RMType.ROOM;
+			
+			boolean room = this.getResourceManager(RMType.ROOM).newCustomer(id, customerID);
+			
+			
+            return car && flight && room;
 
-            return this.getResourceManager(RMType.CAR).newCustomer(id, customerID) &&
-                    this.getResourceManager(RMType.FLIGHT).newCustomer(id, customerID) &&
-                    this.getResourceManager(RMType.ROOM).newCustomer(id, customerID);
-
-
+        } catch(RemoteException e) {
+        
+        	if (reconnectToRM(attempt)) {
+	        	return newCustomer(id, customerID);
+        	}
+        	
+        	return false;
+        
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -595,20 +820,35 @@ public class MiddlewareServerImpl implements MiddlewareServer {
     // Deletes customer from the database. 
     public synchronized boolean deleteCustomer(int id, int customerID) throws RemoteException {
 
+		RMType attempt = RMType.CAR;
+		
         try {
 
             for (Map.Entry<RMType, ResourceManager> entry : this.resourceManagers.entrySet()) {
                 this.tm.transactionOperation(id, entry.getKey());
             }
+			
+			boolean car = this.getResourceManager(RMType.CAR).deleteCustomer(id, customerID);
+			
+			attempt = RMType.FLIGHT;
+			
+			boolean flight = this.getResourceManager(RMType.FLIGHT).deleteCustomer(id, customerID);
+			
+			attempt = RMType.ROOM;
+			
+			boolean room = this.getResourceManager(RMType.ROOM).deleteCustomer(id, customerID);
+	
+			
+            return car && flight && room;
 
-            this.getResourceManager(RMType.CAR).deleteCustomer(id, customerID);
-            this.getResourceManager(RMType.FLIGHT).deleteCustomer(id, customerID);
-
-            return this.getResourceManager(RMType.ROOM).deleteCustomer(id, customerID) &&
-                    this.getResourceManager(RMType.CAR).deleteCustomer(id, customerID) &&
-                    this.getResourceManager(RMType.FLIGHT).deleteCustomer(id, customerID);
-
-
+        } catch(RemoteException e) {
+        
+        	if (reconnectToRM(attempt)) {
+	        	return deleteCustomer(id, customerID);
+        	}
+        	
+        	return false;
+        
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -631,6 +871,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.CAR);
             return rm.reserveCar(id, customerID, location);
 
+        } catch (RemoteException e) {
+        
+        	if (reconnectToRM(RMType.CAR)) {
+	        	return reserveCar(id, customerID, location);	
+        	}
+        	
+        	return false;
+        	
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -655,6 +903,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.ROOM);
             return this.getResourceManager(RMType.ROOM).reserveRoom(id, customerID, location);
 
+        } catch (RemoteException e) {
+        
+        	if (reconnectToRM(RMType.ROOM)) {
+	        	return reserveRoom(id, customerID, location);	
+        	}
+        	
+        	return false;
+        	
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -677,6 +933,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
             this.tm.transactionOperation(id, RMType.FLIGHT);
             return rm.reserveFlight(id, customerID, flightNum);
 
+        } catch (RemoteException e) {
+        
+        	if (reconnectToRM(RMType.FLIGHT)) {
+	        	return reserveFlight(id, customerID, flightNum);	
+        	}
+        	
+        	return false;
+        	
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -697,10 +961,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         System.out.println("Reserving an Itinerary using id:" + id);
         System.out.println("Customer id:" + customer);
 
+		RMType attempt = RMType.FLIGHT;
 
         try {
 
-            boolean success = false;
+            boolean success = false;           
 
             // inform the transaction manager that the flight manager is involved in this transaction now
             this.tm.transactionOperation(id, RMType.FLIGHT);
@@ -712,13 +977,18 @@ public class MiddlewareServerImpl implements MiddlewareServer {
                 }
     
             }
-
+            
+			
+			
             if (Car) {
+            
+            	attempt = RMType.CAR;
                 this.tm.transactionOperation(id, RMType.CAR);
                 success = this.getResourceManager(RMType.CAR).reserveCar(id, customer, location);
             }
 
             if (Room) {
+            	attempt = RMType.ROOM;
                 this.tm.transactionOperation(id, RMType.ROOM);
                 success = this.getResourceManager(RMType.ROOM).reserveRoom(id, customer, location);
             }
@@ -726,6 +996,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
     
             return success;
            
+        } catch (RemoteException e) {
+        
+        	if (reconnectToRM(attempt)) {
+	        	return itinerary(id, customer, flightNumbers, location, Car, Room);
+        	}
+        	
+        	return false;
+        	
         } catch( InvalidTransactionException e) {
 
             throw new RemoteException("Invalid transaction id passed: " + id);
@@ -818,50 +1096,78 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 	    return true;
     }
     
+    private static Object readObjFromFile(String filepath) {
+
+        Object o = null;
+
+        try(ObjectInputStream ois = new ObjectInputStream(new FileInputStream(fileHome + "." + filepath))) {
+
+            o = (Object) ois.readObject();
+
+        } catch(Exception e) {
+
+            System.out.println("Err: " + e);
+            e.printStackTrace();
+
+        }
+
+        return o;
+
+    }
+    
+    
     private boolean resolveTransaction(ActiveTransaction t) throws RemoteException, TransactionAbortedException {
     
     	Status s = t.getStatus();
     
+		
     	for (RMType type: t.getResourceManagers()) {
-	    	
-	    	try {
-	    	
-	    		// get the corresponding RM 
-	    		ResourceManager rm = this.getResourceManager(type);
+    	
+    		boolean resolved = false;
+    		
+    		while (!resolved) {
 	    		
-	    		System.out.println("Resolving transaction #" + t.getXID() + ", with status: " + s.toString() + ", for RM: " + type.toString());
 	    		
-	    		// resolve - if at any point we fail return false
-	    		if (!s.resolve(rm, t.getXID())) {
-		    		return false;
-	    		}	
+	    		try {
+	    	
+	    			// get the corresponding RM 
+	    			ResourceManager rm = this.getResourceManager(type);
+		    		
+		    		System.out.println("Resolving transaction #" + t.getXID() + ", with status: " + s.toString() + ", for RM: " + type.toString());
+		    		
+		    		// resolve - if at any point we fail return false
+		    		if (!s.resolve(rm, t.getXID())) {
+			    		return false;
+		    		}	
+		    		
+		    		resolved = true;
 		    	
-	    	} catch (RemoteException e) {
-	    	
-	    		System.out.println("Exception" + e);
-	        
-	        	System.out.println("Lost connection to rm: " + type);
-	
-	            // if the RM crashes, reconnect to the RM
-	            if (!reconnectToRM(type)) {
-	
-	                // couldn't reconnect to the RM- crash the server NEEDS WORK!!!
-	                throw(e);
-	                
-	            }
-	            
-	            System.out.println("Recovered connection to RM: " + type);
+				} catch (RemoteException e) {
+	    		
+		    		System.out.println("Exception" + e);
+		        
+		        	System.out.println("Lost connection to rm: " + type);
 		    	
-	    	} catch (InvalidTransactionException | TransactionAbortedException i) {
-		    	return false;
-	    	}
+		    		reconnectToRM(type);
+		            
+		            System.out.println("Recovered connection to RM: " + type);
+		    	
+				} catch (InvalidTransactionException | TransactionAbortedException i) {
+					return false;
+				}
 	    	
+		
+	    		
+    		}
 	    	
+	    		    	
     	}
     	
     	return true;
 		
 	}
+	
+	
 	
 	
 	private boolean recoverTransaction(ActiveTransaction t) throws RemoteException {
@@ -903,7 +1209,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         
         System.out.print("\n" + t + " RM down, attempting reconnect.");
 
-        while (i < 200) {
+        while (true) {
         
             try {
 
@@ -941,11 +1247,8 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         }
         
-        System.out.println("");
-
 
         // could not reconnect; return false
-        return false;
 
 	}
 
