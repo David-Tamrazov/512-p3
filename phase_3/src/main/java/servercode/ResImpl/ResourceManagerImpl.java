@@ -15,6 +15,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.File;
 import java.rmi.Remote;
 import java.util.*;
 
@@ -27,10 +28,11 @@ import java.util.concurrent.locks.Lock;
 
 public class ResourceManagerImpl implements ResourceManager {
     
-    protected RMHashtable m_itemHT = new RMHashtable();
-    protected HashMap l_itemHTM = new HashMap<Integer, RMHashtable>();
-    protected LockManager lm;
+    protected static RMHashtable m_itemHT = new RMHashtable();
+    protected static HashMap l_itemHTM = new HashMap<Integer, RMHashtable>();
+    protected static LockManager lm;
     protected String resourceType;
+    protected final static String fileHome = "/tmp/comp512gr17p3";
 
 
     public static void main(String args[]) {
@@ -68,7 +70,20 @@ public class ResourceManagerImpl implements ResourceManager {
 
             System.out.println("Binding resource manager object to: " + objName);
             
+            File m_itemHT_file = new File(fileHome + "." + "m_itemHT.ser");
+			if(m_itemHT_file.exists()) { 
+			    m_itemHT = (RMHashtable)readObjFromFile("m_itemHT.ser");
+			}
             
+            File l_itemHTM_file = new File(fileHome + "." + "l_itemHTM.ser");
+			if(l_itemHTM_file.exists()) { 
+			    l_itemHTM = (HashMap)readObjFromFile("l_itemHTM.ser");
+			}
+			
+			File lm_file = new File(fileHome + "." + "lm.ser");
+			if(lm_file.exists()) { 
+			    lm = (LockManager)readObjFromFile("lm.ser");
+			}
             
             registry.rebind(objName, rm);
 
@@ -84,9 +99,9 @@ public class ResourceManagerImpl implements ResourceManager {
         }
     }
 
-    private void writeObjToFile(Object obj, String filepath) {
+    private static void writeObjToFile(Object obj, String filepath) {
     	try {
-	    	FileOutputStream fos = new FileOutputStream("/tmp/comp512gr17p3." + filepath);
+	    	FileOutputStream fos = new FileOutputStream(fileHome + "." + filepath);
 			ObjectOutputStream oos = new ObjectOutputStream(fos);
 			oos.writeObject(obj);
 			oos.close();
@@ -98,11 +113,11 @@ public class ResourceManagerImpl implements ResourceManager {
     	}
     }
 
-    private Object readObjFromFile(String filepath) {
+    private static Object readObjFromFile(String filepath) {
 
         Object o = null;
 
-        try(ObjectInputStream ois = new ObjectInputStream(new FileInputStream("/tmp/comp512gr17p3." + filepath))) {
+        try(ObjectInputStream ois = new ObjectInputStream(new FileInputStream(fileHome + "." + filepath))) {
 
             o = (Object) ois.readObject();
 
@@ -132,6 +147,10 @@ public class ResourceManagerImpl implements ResourceManager {
 	    synchronized(m_itemHT) {
 	    	    	
 	    	RMHashtable l_itemHT = (RMHashtable)l_itemHTM.get(xid);
+	    	
+	    	if(l_itemHT == null) {
+		    	return true;
+	    	}
 		    	
 		    for (Object key: l_itemHT.keySet()) {
 		    

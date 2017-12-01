@@ -10,6 +10,7 @@ import java.io.ObjectOutputStream;
 
 import servercode.RMEnums.RMType;
 import servercode.TMEnums.TransactionStatus;
+import servercode.ResInterface.Status;
 
 public class TransactionManager implements Serializable {
 
@@ -109,6 +110,13 @@ public class TransactionManager implements Serializable {
 			return this.activeTransactions.get(xid);
 
 		}
+	}
+	
+	public void updateTransactionStatus(ActiveTransaction t, Status s) {
+		
+		t.updateStatus(s);
+		writeSelf();
+			
 	}
 
 
