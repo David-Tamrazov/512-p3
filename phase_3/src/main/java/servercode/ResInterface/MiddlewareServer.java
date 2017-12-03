@@ -15,7 +15,7 @@ import java.util.*;
 // Therefore, it'll be easier to just have this extend ResourceManager and then override all of those methods in the class implementation 
 
 public interface MiddlewareServer extends ResourceManager {
-    
+   	public boolean crash(String which) throws RemoteException; 
     public void connectToManagers(String [] activeManagers) throws RemoteException;
     public ResourceManager getResourceManager(RMType type) throws RemoteException;
 

@@ -142,7 +142,7 @@ public class TransactionManager implements Serializable {
     
     	synchronized(this.activeTransactions) {
 	    	
-	    	if (!this.activeTransactions.containsKey(xid)) {
+	    	if (!this.activeTransactions.containsKey(xid) || this.activeTransactions.get(xid) .getStatus() == TransactionStatus.ABORTED) {
             	return false;
 			}
 

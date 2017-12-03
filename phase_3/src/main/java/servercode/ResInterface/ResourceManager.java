@@ -23,7 +23,12 @@ import java.util.*;
  */
 
 public interface ResourceManager extends Remote, Transaction {
-    
+
+	public void selfDestruct() throws RemoteException;
+     
+    public boolean voteRequest(int id)
+    throws RemoteException, InvalidTransactionException;
+   
     /* Add seats to a flight.  In general this will be used to create a new
      * flight, but it should be possible to add seats to an existing flight.
      * Adding to an existing flight should overwrite the current price of the
@@ -31,10 +36,6 @@ public interface ResourceManager extends Remote, Transaction {
      *
      * @return success.
      */
-     
-    public boolean voteRequest(int id)
-    throws RemoteException, InvalidTransactionException;
-    
     public boolean addFlight(int id, int flightNum, int flightSeats, int flightPrice) 
 	throws RemoteException; 
     

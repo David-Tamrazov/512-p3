@@ -106,6 +106,22 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
     }
     
+    public boolean crash(String which) throws RemoteException {
+	    
+	    switch(which) {
+		    case "car" : getResourceManager(RMType.CAR).selfDestruct(); return true;
+		    case "room" : getResourceManager(RMType.ROOM).selfDestruct(); return true;
+		    case "flight" : getResourceManager(RMType.FLIGHT).selfDestruct(); return true;
+		    case "mws" : selfDestruct(); return true;
+		    default: return false;
+	    }
+	    
+    }
+    
+    
+    public void selfDestruct() throws RemoteException {
+	    System.exit(0);
+    }
     
 
     public boolean commit(int xid) throws InvalidTransactionException, TransactionAbortedException, RemoteException {
@@ -166,8 +182,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 			resolveTransaction(t);
                         
             // transaction has committed - remove it from the TM
-            tm.removeActiveTransaction(t.getXID());
-            
+            tm.removeActiveTransaction(t.getXID());       
 
 
 		} catch (RemoteException e) {
@@ -218,13 +233,13 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         } catch (RemoteException e) {
         
 			// run an infinite loop and try to reconnect to the RM
-			if (reconnectToRM(RMType.FLIGHT)) {
+			if (!reconnectToRM(RMType.FLIGHT, id)) {
 				
-				return addFlight(id, flightNum, flightSeats, flightPrice);
+				throw(e);
 				
 			}
 				
-			return false;
+			return addFlight(id, flightNum, flightSeats, flightPrice);
 			
         } catch (InvalidTransactionException e) {
 	        
@@ -254,14 +269,15 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-			// run an infinite loop and try to reconnect to the RM
-			if (reconnectToRM(RMType.FLIGHT)) {
+			// if we can't reconnect to the RM, throw the exception
+			if (!reconnectToRM(RMType.FLIGHT, id)) {
 				
-				return deleteFlight(id, flightNum);
+				throw(e);
 				
 			}
 				
-			return false;
+			// we reconnected- try to resubmit the operation again
+			return deleteFlight(id, flightNum);
 			
         } catch(InvalidTransactionException e) {
 
@@ -294,13 +310,13 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         } catch (RemoteException e) {
         
 			// run an infinite loop and try to reconnect to the RM
-			if (reconnectToRM(RMType.ROOM)) {
+			if (!reconnectToRM(RMType.ROOM, id)) {
 				
-				return addRooms(id, location, count, price);
+				throw(e);
 				
 			}
 				
-			return false;
+			return addRooms(id, location, count, price);
 			
         } catch( InvalidTransactionException e) {
 
@@ -329,14 +345,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
         } catch (RemoteException e) {
         
 			// run an infinite loop and try to reconnect to the RM
-			if (reconnectToRM(RMType.ROOM)) {
+			if (!reconnectToRM(RMType.ROOM, id)) {
 				
 				// try the operation again
-				return deleteRooms(id, location);
+				throw(e);
 				
 			}
 			
-			return false;
+			return deleteRooms(id, location);
 				
 			
         } catch( InvalidTransactionException e) {
@@ -375,14 +391,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-	        if (reconnectToRM(RMType.CAR)) {
+	        if (!reconnectToRM(RMType.CAR, id)) {
 		        
 		        // try run the method again
-		        return addCars(id, location, count, price);
+		        throw(e);
 		        
 	        }
 	        
-	        return false;
+	        return addCars(id, location, count, price);
         }
 
     }
@@ -400,14 +416,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-	        if (reconnectToRM(RMType.CAR)) {
+	        if (!reconnectToRM(RMType.CAR, id)) {
 		        
 		        // try run the method again
-		        return deleteCars(id, location);
+		        throw(e);
 		        
 	        }
 	        
-	        return false;
+	        return deleteCars(id, location);
 	        
 	        
         } catch( InvalidTransactionException e) {
@@ -439,14 +455,13 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-	        if (reconnectToRM(RMType.FLIGHT)) {
-		        
-		        // try run the method again
-		        return queryFlight(id, flightNum);
+	        if (!reconnectToRM(RMType.FLIGHT, id)) {
+		     
+		        throw(e);
 		        
 	        }
 	        
-	        return 0;
+	        return queryFlight(id, flightNum);
 	        
 	        
         } catch( InvalidTransactionException e) {
@@ -489,14 +504,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-	        if (reconnectToRM(RMType.FLIGHT)) {
+	        if (!reconnectToRM(RMType.FLIGHT, id)) {
 		        
-		        // try run the method again
-		        return queryFlightPrice(id, flightNum);
+				throw(e);
 		        
 	        }
 	        
-	        return 0;
+    		// try run the method again
+			return queryFlightPrice(id, flightNum);
 	        
 	        
         } catch( InvalidTransactionException e) {
@@ -525,14 +540,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-	        if (reconnectToRM(RMType.ROOM)) {
+	        if (!reconnectToRM(RMType.ROOM, id)) {
 		        
-		        // try run the method again
-		        return queryRooms(id, location);
+				throw(e);
 		        
 	        }
 	        
-	        return 0;
+	        // try run the method again
+		    return queryRooms(id, location);
 	        
 	        
         } catch( InvalidTransactionException e) {
@@ -563,14 +578,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-	        if (reconnectToRM(RMType.ROOM)) {
+	        if (!reconnectToRM(RMType.ROOM, id)) {
 		        
 		        // try run the method again
-		        return queryRoomsPrice(id, location);
-		        
+		        throw(e);
+		            
 	        }
 	        
-	        return 0;
+	        return queryRoomsPrice(id, location);
 	        
 	        
         } catch( InvalidTransactionException e) {
@@ -599,14 +614,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-	        if (reconnectToRM(RMType.CAR)) {
+	        if (!reconnectToRM(RMType.CAR, id)) {
 		        
 		        // try run the method again
-		        return queryCars(id, location);
+		        throw(e);
 		        
 	        }
 	        
-	        return 0;
+	        return queryCars(id, location);
 	        
 	        
         } catch( InvalidTransactionException e) {
@@ -635,14 +650,14 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-	        if (reconnectToRM(RMType.CAR)) {
+	        if (!reconnectToRM(RMType.CAR, id)) {
 		        
 		        // try run the method again
-		        return queryCarsPrice(id, location);
+		        throw(e);
 		        
 	        }
 	        
-	        return 0;
+	        return queryCarsPrice(id, location);
 	        
         } catch( InvalidTransactionException e) {
 
@@ -689,11 +704,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-        	if (reconnectToRM(attempt)) {
-	        	return queryCustomerInfo(id, customerID);
+        	if (!reconnectToRM(attempt, id)) {
+	        	throw(e);
         	}
         	
-        	return "";
+        	return queryCustomerInfo(id, customerID);
         	
         } catch( InvalidTransactionException e) {
 
@@ -735,11 +750,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch(RemoteException e) {
         	
-        	if (reconnectToRM(attempt)) {
-	        	return newCustomer(id);
+        	if (!reconnectToRM(attempt, id)) {
+	        	throw(e);
         	}
         	
-        	return 0;
+        	return newCustomer(id);
         	
         } catch( InvalidTransactionException e) {
  
@@ -797,11 +812,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch(RemoteException e) {
         
-        	if (reconnectToRM(attempt)) {
-	        	return newCustomer(id, customerID);
+        	if (!reconnectToRM(attempt, id)) {
+	        	throw(e);
         	}
         	
-        	return false;
+        	return newCustomer(id, customerID);
         
         } catch( InvalidTransactionException e) {
 
@@ -843,11 +858,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch(RemoteException e) {
         
-        	if (reconnectToRM(attempt)) {
-	        	return deleteCustomer(id, customerID);
+        	if (!reconnectToRM(attempt, id)) {
+	        	throw(e);
         	}
         	
-        	return false;
+        	return deleteCustomer(id, customerID);
         
         } catch( InvalidTransactionException e) {
 
@@ -873,11 +888,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-        	if (reconnectToRM(RMType.CAR)) {
-	        	return reserveCar(id, customerID, location);	
+        	if (!reconnectToRM(RMType.CAR, id)) {
+	        	throw(e);
         	}
         	
-        	return false;
+        	return reserveCar(id, customerID, location);	
         	
         } catch( InvalidTransactionException e) {
 
@@ -905,11 +920,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-        	if (reconnectToRM(RMType.ROOM)) {
-	        	return reserveRoom(id, customerID, location);	
+        	if (!reconnectToRM(RMType.ROOM, id)) {
+	        	throw(e);
         	}
         	
-        	return false;
+        	return reserveRoom(id, customerID, location);	
         	
         } catch( InvalidTransactionException e) {
 
@@ -935,11 +950,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         } catch (RemoteException e) {
         
-        	if (reconnectToRM(RMType.FLIGHT)) {
-	        	return reserveFlight(id, customerID, flightNum);	
+        	if (!reconnectToRM(RMType.FLIGHT, id)) {
+	        	throw(e);
         	}
         	
-        	return false;
+        	return reserveFlight(id, customerID, flightNum);	
         	
         } catch( InvalidTransactionException e) {
 
@@ -998,11 +1013,11 @@ public class MiddlewareServerImpl implements MiddlewareServer {
            
         } catch (RemoteException e) {
         
-        	if (reconnectToRM(attempt)) {
-	        	return itinerary(id, customer, flightNumbers, location, Car, Room);
+        	if (!reconnectToRM(attempt, id)) {
+	        	throw(e);
         	}
         	
-        	return false;
+        	return itinerary(id, customer, flightNumbers, location, Car, Room);
         	
         } catch( InvalidTransactionException e) {
 
@@ -1015,6 +1030,9 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 
         }
     }
+    
+    
+    
 
     public void ping(String ping) throws RemoteException {
         System.out.println(ping);
@@ -1148,7 +1166,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 		        
 		        	System.out.println("Lost connection to rm: " + type);
 		    	
-		    		reconnectToRM(type);
+		    		reconnectToRM(type, t.getXID());
 		            
 		            System.out.println("Recovered connection to RM: " + type);
 		    	
@@ -1199,37 +1217,46 @@ public class MiddlewareServerImpl implements MiddlewareServer {
     }
     
 
-    private boolean reconnectToRM(RMType t) {
+    private boolean reconnectToRM(RMType type, int xid) {
 
         // get hostname for this RM
-        String hostname = this.rmHosts.get(t);
+        String hostname = this.rmHosts.get(type);
 
         // counter for how many times it should try to reconnect
         int i = 0;
         
-        System.out.print("\n" + t + " RM down, attempting reconnect.");
-
-        while (true) {
+        System.out.print("\n" + type + " RM down, attempting reconnect.");
+        
+        // transaction status of the transaction we're trying to reconnect to 
+		Status s = TransactionStatus.ACTIVE;
+		
+        while (s != TransactionStatus.ABORTED) {
         
             try {
+            
+            	// get the status of the transaction
+            	s = this.tm.getActiveTransaction(xid).getStatus();
 
                 // connect to the registry at this hostname
                 Registry registry = LocateRegistry.getRegistry(hostname, 1738);
 
                 // try put the new object reference into our map
-                this.resourceManagers.put(t, (ResourceManager) registry.lookup("Gr17ResourceManager"));
+                this.resourceManagers.put(type, (ResourceManager) registry.lookup("Gr17ResourceManager"));
                             
                 // ping to check for liveliness
-                this.resourceManagers.get(t).ping("Hello");
+                this.resourceManagers.get(type).ping("Hello");
                 
                 // we got here- ping didnt crash us, so we returned succesfully
-                System.out.println("");
-                
-                System.out.println("Connected to the registry succesfully");
+                System.out.println("\nConnected to the registry succesfully");
 
                 // return true
                 return true;
 
+            } catch(InvalidTransactionException a) {
+            
+            	// transaction we're reconnecting for no longer exists; return false
+            	return false;
+            	
             } catch (Exception e) {
             
 				i++;
@@ -1241,14 +1268,13 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 				} catch(Exception ei) {
 					
 				}
-/*                 System.err.println("Server exception: " + e.toString()); */
 
             }
 
         }
         
 
-        // could not reconnect; return false
+        return false;
 
 	}
 
@@ -1282,7 +1308,7 @@ public class MiddlewareServerImpl implements MiddlewareServer {
 						Date curr = new Date();
 
 						// if the transaction has run out of its time to live, 
-						if(curr.getTime() - t.getLastTransationTime().getTime() > t.getTimeToLive() && t.getStatus() == TransactionStatus.ACTIVE) {
+						if(curr.getTime() - t.getLastTransationTime().getTime() > t.getTimeToLive() && (t.getStatus() == TransactionStatus.ACTIVE) {
 
 							System.out.println("Aborting transaction: " + t.getXID());
 							

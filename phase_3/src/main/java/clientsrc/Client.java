@@ -641,6 +641,14 @@ public class Client {
 			System.exit(0);
 
 			break;
+			
+		case 27: //crash
+		
+			System.out.println("Crashing " + getString(arguments.elementAt(1)) + " RM.");
+			mws.crash(getString(arguments.elementAt(1)));
+			
+			break;
+			
         default:
             System.out.println("The interface does not support this command.");
             break;
@@ -713,6 +721,8 @@ public class Client {
         	return 25;
         else if (argument.compareToIgnoreCase("shutdown") == 0)
         	return 26;
+        else if (argument.compareToIgnoreCase("crash") == 0)
+        	return 27;
         else
             return 666;
 

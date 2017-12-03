@@ -15,6 +15,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.*;
 import java.io.File;
 import java.rmi.Remote;
 import java.util.*;
@@ -37,6 +38,8 @@ public class ResourceManagerImpl implements ResourceManager {
 
     public static void main(String args[]) {
         // Figure out where server is running
+        
+        config();
         String objName = "Gr17ResourceManager";
         String server = "localhost";
         int port = 1738;
@@ -179,6 +182,10 @@ public class ResourceManagerImpl implements ResourceManager {
 		
 	}
 	
+	public void selfDestruct() throws RemoteException {
+		System.exit(0);
+	}
+	
     public void abort(int xid) throws RemoteException, InvalidTransactionException {
 	    synchronized(l_itemHTM) {
 	    	l_itemHTM.remove(xid);
@@ -264,8 +271,25 @@ public class ResourceManagerImpl implements ResourceManager {
 
 
     protected RMItem remove(int id, String key) {
+    	synchronized (l_itemHTM) {
+	    	RMItem item = (RMItem) ((RMHashtable) l_itemHTM.get(id)).get(key);
+	    	RMItem clone = item.clone();
+	    		    	
+	    	if(item instanceof Customer) {
+		    	write(id, key, new Customer(-1));
+	    	} else {
+	    		((ReservableItem) clone).setCount(0);
+		    	write(id, key, clone);
+	    	}
+	    	
+	    	writeObjToFile(l_itemHTM, "l_itemHTM.ser");
+	    	
+	    	return item;
+    	}
+    
 
-        RMItem deleteItem = new Customer(-1);
+        /*
+RMItem deleteItem = new Customer(-1);
 
         synchronized (l_itemHTM) {
 
@@ -275,6 +299,7 @@ public class ResourceManagerImpl implements ResourceManager {
 			writeObjToFile(l_itemHTM, "l_itemHTM.ser");
             return originalItem;
         }
+*/
     }
     
     
@@ -731,6 +756,29 @@ public class ResourceManagerImpl implements ResourceManager {
     public boolean voteRequest(int xid) throws RemoteException, InvalidTransactionException {
 	    //check if transaction has an op set here, if not throw invalid transaction exception, else return true
 	    return true;
+    }
+    
+    public static void config() {
+	    String fileName = fileHome + ".rm.config";
+
+        String line = null;
+
+        try {
+            FileReader fileReader = new FileReader(fileName);
+            BufferedReader bufferedReader = new BufferedReader(fileReader);
+
+            while((line = bufferedReader.readLine()) != null) {
+                System.out.println(line);
+            }
+
+            bufferedReader.close();         
+        }
+        catch(FileNotFoundException ex) {
+            System.out.println("No config file found in tmp.");                
+        }
+        catch(IOException ex) {
+            System.out.println("Error reading file '" + fileName + "'");
+        }
     }
 
 }
